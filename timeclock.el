@@ -120,22 +120,29 @@
   (interactive)
   (let* ((when (or when
                    (intern (completing-read "Report Span: "
-                                            '(today yesterday this-week
-                                                    last-week this-month last-month)))))
+                                            '(today
+                                              yesterday
+                                              this-week
+                                              last-week
+                                              this-month
+                                              last-month)))))
          (tasks (timeclock//report when))
          (total 0)
          (buf (when tasks (get-buffer-create
-                           (format "*timeclock report - %s*" (symbol-name when))))))
+                           (format "*timeclock report - %s*"
+                                   (symbol-name when))))))
     (when buf
       (set-buffer buf)
       (erase-buffer)
       (dolist (task tasks)
         (setq total (+ total (nth 1 task)))
-        (insert (format "%15s - %s\n"
-                        (timeclock//seconds-to-display-time (nth 1 task))
-                        (car task))))
+        (insert (format
+                 "%15s - %s\n"
+                 (timeclock//seconds-to-display-time (nth 1 task))
+                 (car task))))
       (insert (concat (make-string 50 ?-) "\n"))
-      (insert (format "%15s - Total\n" (timeclock//seconds-to-display-time total)))
+      (insert (format "%15s - Total\n"
+                      (timeclock//seconds-to-display-time total)))
       (display-buffer (current-buffer) t))))
 
 (defun timeclock//report (when)

@@ -11,7 +11,7 @@
       (timeclock//create-schema timeclock/db)
     (let ((db-file (or file timeclock/db-file)))
       (setq timeclock/db (sqlite-open db-file))
-      (timeclock//create-schem timeclock/db))))
+      (timeclock//create-schema timeclock/db))))
 
 (defun timeclock//create-schema (db)
   (timeclock//create-table-timeclock db)

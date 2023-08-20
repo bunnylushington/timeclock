@@ -115,6 +115,47 @@
       FROM timeclock
       ORDER BY entry_id ASC")))
 
+(defun timeclock/report (&optional when)
+  "Run a report."
+  (interactive)
+  (let* ((when (or when
+                   (intern (completing-read "Report Span: "
+                                            '(today yesterday this-week
+                                                    last-week this-month last-month)))))
+         (tasks (timeclock//report when))
+         (total 0)
+         (buf (when tasks (get-buffer-create
+                           (format "*timeclock report - %s*" (symbol-name when))))))
+    (when buf
+      (set-buffer buf)
+      (erase-buffer)
+      (dolist (task tasks)
+        (setq total (+ total (nth 1 task)))
+        (insert (format "%15s - %s\n"
+                        (timeclock//seconds-to-display-time (nth 1 task))
+                        (car task))))
+      (insert (concat (make-string 50 ?-) "\n"))
+      (insert (format "%15s - Total\n" (timeclock//seconds-to-display-time total)))
+      (display-buffer (current-buffer) t))))
+
+(defun timeclock//report (when)
+  (let ((db (timeclock/database))
+        (range (cond
+                ((eq when 'yesterday) (timeclock//yesterday))
+                ((eq when 'this-week) (timeclock//this-week))
+                ((eq when 'last-week) (timeclock//last-week))
+                ((eq when 'this-month) (timeclock//this-month))
+                ((eq when 'last-month) (timeclock//last-month))
+                (t (timeclock//today)))))
+    (sqlite-select
+     db
+     (concat "SELECT task,
+                     sum(duration)
+              FROM timeclock
+              WHERE " range "
+              GROUP BY task"))))
+
+
 (defun timeclock//create-table-timeclock (db)
   (sqlite-execute
    db
@@ -139,6 +180,7 @@
                         END) VIRTUAL
  )"))
 
+
 (defun timeclock//bool-to-int (obj)
   (if obj 1 0))
 
@@ -151,5 +193,41 @@
 (defun timeclock//int-to-str (obj)
   (if (= 1 obj) "y" "n"))
 
+
+(defun timeclock//today ()
+  "clock_in >= unixepoch('now', 'start of day')")
+
+(defun timeclock//yesterday ()
+  "clock_in >= unixepoch('now', 'start of day', '-1 day')
+   AND clock_in < unixepoch('now', 'start of day')")
+
+(defun timeclock//this-week ()
+  "clock_in >= unixepoch('now', 'weekday 1', '-7 days')")
+
+(defun timeclock//last-week ()
+  "clock_in >= unixepoch('now', 'weekday 1', '-14 days')
+   AND clock_in < unixepoch('now', 'weekday 1', '-7 days')")
+
+(defun timeclock//this-month ()
+  "clock_in >= unixepoch('now', 'start of month')")
+
+(defun timeclock//last-month ()
+  "clock_in >= unixepoch('now', 'start of month', '-1 month')
+   AND clock_in < unixepoch('now', 'start of month')")
+
+(defun timeclock//seconds-to-display-time (secs)
+  (let* ((hours (/ secs 3600))
+         (minutes (/ (% secs 3600) 60))
+         (seconds (% secs 60)))
+    (format "%s%s%s"
+            (if (> hours 0)
+                (format "%sh " hours)
+              "")
+            (if (> minutes 0)
+                (format "%sm " minutes)
+              "")
+            (if (> seconds 0)
+                (format "%ss" seconds)
+              ""))))
 
 (provide 'timeclock)

@@ -17,15 +17,15 @@
   (timeclock//create-table-timeclock db)
   db)
 
-(defun timeclock/punch-in (&optional task is_feature notes)
+(defun timeclock/punch-in (&optional task is-feature notes)
   "Punch in, first punching out of any active tasks."
   (interactive)
   (let*
       ((task
         (or task
             (completing-read "Task: " (timeclock//tasks))))
-       (is_feature
-        (or is_feature
+       (is-feature
+        (or is-feature
             (timeclock//y-or-n
              (completing-read
               "Is Feature? (y/n): "
@@ -33,7 +33,7 @@
               (timeclock//feature-for-task task)))))
        (notes (or notes (read-string "Notes: "))))
     (when (timeclock/active) (timeclock/punch-out))
-    (timeclock//punch-in task is_feature notes)))
+    (timeclock//punch-in task is-feature notes)))
 
 (defun timeclock/punch-out ()
   "Punch of all active tasks."
@@ -60,13 +60,42 @@
   (let ((task (timeclock/active)))
     (if task (car task) nil)))
 
+(defun timeclock/report (&optional when)
+  "Run a report."
+  (interactive)
+  (let* ((when (or when
+                   (intern (completing-read "Report Span: "
+                                            '(today
+                                              yesterday
+                                              this-week
+                                              last-week
+                                              this-month
+                                              last-month)))))
+         (tasks (timeclock//report when))
+         (total 0)
+         (buf (when tasks (get-buffer-create
+                           (format "*timeclock report - %s*"
+                                   (symbol-name when))))))
+    (when buf
+      (set-buffer buf)
+      (erase-buffer)
+      (dolist (task tasks)
+        (setq total (+ total (nth 1 task)))
+
+        (insert (format
+                 "%15s%s - %s\n"
+                 (timeclock//seconds-to-display-time (nth 1 task))
+                 (if (timeclock//int-to-bool (nth 2 task))
+                     "*" " ")
+                 (car task))))
+      (insert (concat (make-string 50 ?-) "\n"))
+      (insert (format "%15s - Total\n"
+                      (timeclock//seconds-to-display-time total)))
+      (display-buffer (current-buffer) t))))
+
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
 ;; Utility functions
-
-
-;; (mapcar (lambda (task) (car task)) (timeclock//all-tasks))
-;; (cadr (assoc "a new task" (timeclock//all-tasks)))
 
 (defun timeclock//tasks ()
   (mapcar (lambda (task) (car task)) (timeclock//all-tasks)))
@@ -77,14 +106,14 @@
         (timeclock//int-to-str (cadr feat))
       "n")))
 
-(defun timeclock//punch-in (task is_feature notes)
+(defun timeclock//punch-in (task is-feature notes)
   (let ((db (timeclock/database)))
     (sqlite-execute
      db
      "INSERT INTO timeclock (task, is_feature, clock_in, notes)
       VALUES (?, ?, ?, ?)"
      `(,task
-       ,(timeclock//bool-to-int is_feature)
+       ,is-feature
        ,(floor (float-time))
        ,notes))))
 
@@ -115,35 +144,6 @@
       FROM timeclock
       ORDER BY entry_id ASC")))
 
-(defun timeclock/report (&optional when)
-  "Run a report."
-  (interactive)
-  (let* ((when (or when
-                   (intern (completing-read "Report Span: "
-                                            '(today
-                                              yesterday
-                                              this-week
-                                              last-week
-                                              this-month
-                                              last-month)))))
-         (tasks (timeclock//report when))
-         (total 0)
-         (buf (when tasks (get-buffer-create
-                           (format "*timeclock report - %s*"
-                                   (symbol-name when))))))
-    (when buf
-      (set-buffer buf)
-      (erase-buffer)
-      (dolist (task tasks)
-        (setq total (+ total (nth 1 task)))
-        (insert (format
-                 "%15s - %s\n"
-                 (timeclock//seconds-to-display-time (nth 1 task))
-                 (car task))))
-      (insert (concat (make-string 50 ?-) "\n"))
-      (insert (format "%15s - Total\n"
-                      (timeclock//seconds-to-display-time total)))
-      (display-buffer (current-buffer) t))))
 
 (defun timeclock//report (when)
   (let ((db (timeclock/database))
@@ -157,10 +157,12 @@
     (sqlite-select
      db
      (concat "SELECT task,
-                     sum(duration)
+                     sum(coalesce(duration,
+                        (unixepoch('now') - clock_in))),
+                     is_feature
               FROM timeclock
               WHERE " range "
-              GROUP BY task"))))
+              GROUP BY task, is_feature"))))
 
 
 (defun timeclock//create-table-timeclock (db)

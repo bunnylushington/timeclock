@@ -211,11 +211,11 @@
    AND clock_in < unixepoch('now', 'start of day')")
 
 (defun timeclock//this-week ()
-  "clock_in >= unixepoch('now', 'weekday 1', '-7 days')")
+  "clock_in >= unixepoch('now', 'weekday 1', '-7 days', 'start of day')")
 
 (defun timeclock//last-week ()
-  "clock_in >= unixepoch('now', 'weekday 1', '-14 days')
-   AND clock_in < unixepoch('now', 'weekday 1', '-7 days')")
+  "clock_in >= unixepoch('now', 'weekday 1', '-14 days', 'start of day')
+   AND clock_in < unixepoch('now', 'weekday 1', '-7 days', 'start of day')")
 
 (defun timeclock//this-month ()
   "clock_in >= unixepoch('now', 'start of month')")

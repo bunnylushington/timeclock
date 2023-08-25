@@ -138,9 +138,10 @@
           (if (not (string= current-day previous-current-day))
               ;; this is when it's a new day
               (progn
-                (insert (format "%s%s\n"
-                                (make-string 19 ?\ )
-                                (timeclock//seconds-to-display-time day-total)))
+                (when (> day-total 0)
+                  (insert (format "%s%s\n"
+                                  (make-string 19 ?\ )
+                                  (timeclock//seconds-to-display-time day-total))))
                 (setq day-total (- (nth 3 task) (nth 2 task))
                       day-task-counter 0
                       previous-current-day current-day)
@@ -304,23 +305,30 @@
   "unixepoch(clock_in, 'unixepoch', 'localtime') >=
    unixepoch('now', 'localtime', 'start of day', '-1 day')
    AND
-  unixepoch(clock_in, 'unixepoch', 'localtime') <
-  unixepoch('now', 'localtime', 'start of day')")
+   unixepoch(clock_in, 'unixepoch', 'localtime') <
+   unixepoch('now', 'localtime', 'start of day')")
 
 (defun timeclock//this-week ()
   "unixepoch(clock_in, 'unixepoch', 'localtime') >=
    unixepoch('now', 'localtime',  'weekday 1', '-7 days', 'start of day')")
 
 (defun timeclock//last-week ()
-  "clock_in >= unixepoch('now', 'weekday 1', '-14 days', 'start of day')
-   AND clock_in < unixepoch('now', 'weekday 1', '-7 days', 'start of day')")
+  "unixepoch(clock_in, 'unixepoch', 'localtime') >=
+   unixepoch('now', 'localtime', 'weekday 1', '-14 days', 'start of day')
+   AND
+   unixepoch(clock_in, 'unixepoch', 'localtime') <
+   unixepoch('now', 'localtime', 'weekday 1', '-7 days', 'start of day')")
 
 (defun timeclock//this-month ()
-  "clock_in >= unixepoch('now', 'start of month')")
+  "unixepoch(clock_in, 'unixepoch', 'localtime') >=
+   unixepoch('now', 'localtime', 'start of month')")
 
 (defun timeclock//last-month ()
-  "clock_in >= unixepoch('now', 'start of month', '-1 month')
-   AND clock_in < unixepoch('now', 'start of month')")
+  "unixepoch(clock_in, 'unixepoch', 'localtime') >=
+   unixepoch('now', 'localtime', 'start of month', '-1 month')
+   AND
+   unixepoch(clock_in, 'unixepoch', 'localtime') <
+   unixepoch('now', 'localtime', 'start of month')")
 
 (defun timeclock//seconds-to-display-time (secs)
   (let* ((hours (/ secs 3600))

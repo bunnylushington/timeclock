@@ -52,7 +52,7 @@
 (defvar timeclock/db-file "/tmp/timeclock.db"
   "The filename of the timeclock sqlite DB.")
 
-(defvar timeclock/boolean-flag-text "Is Featue"
+(defvar timeclock/boolean-flag-text "Is Feature"
   "The prompt for the boolean task flag.")
 
 (defun timeclock/database (&optional file)

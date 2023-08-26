@@ -20,6 +20,12 @@
   "Timeclock smallskip face"
   :group 'timeclock)
 
+(defface timeclock-medskip-face
+  '((t :inherit default
+       :height 0.5))
+  "Timeclock smallskip face"
+  :group 'timeclock)
+
 (defface timeclock-time-detail-face
   '((t :inherit font-lock-string-face))
   "Timeclock time face"
@@ -33,6 +39,11 @@
 (defface timeclock-description-face
   '((t :inherit font-lock-comment-face))
   "Timeclock range description face"
+  :group 'timeclock)
+
+(defface timeclock-note-face
+  '((t :inherit font-lock-type-face))
+  "Timeclock face to display notes"
   :group 'timeclock)
 
 (defvar timeclock/db nil
@@ -104,6 +115,7 @@
           (set-buffer buf)
           (fundamental-mode)
           (erase-buffer)
+          (add-to-invisibility-spec 'timeclock-note)
           (timeclock//report-summary-section-header span-description)
           (timeclock//report-summary-section-body tasks)
           (timeclock//report-detail-section-header)
@@ -139,6 +151,8 @@
   (insert (concat (propertize "Timeclock Report" 'face 'timeclock-header-1-face)
                   "\n"
                   (propertize span-description 'face 'timeclock-description-face)
+                  "   "
+                  (buttonize "show notes" #'timeclock//toggle-notes)
                   "\n\n"
                   (propertize "Summary" 'face 'timeclock-header-2-face)
                   "\n"
@@ -191,7 +205,7 @@
           (setq day-total (+ duration day-total)))
 
           (insert (format
-                   "    %s  %-8s  %s\n"
+                   "    %s  %-8s  %s\n%s"
                    (propertize (format "%s - %s"
                                        (format-time-string "%R" (seconds-to-time punch-in))
                                        (if punch-out
@@ -200,9 +214,22 @@
                                'face 'timeclock-time-detail-face)
                    (propertize (timeclock//seconds-to-display-time duration)
                                'face 'timeclock-time-elapsed-face)
-                   title))))
+                   title
+                   (if (not (string= notes ""))
+                       (propertize (format "%s%s\n"
+                                           (make-string 29 ?\ )
+                                           notes)
+                               'face 'timeclock-note-face
+                               'invisible 'timeclock-note)
+                     "")))))
     ;; total for the last day of the report.
     (timeclock//report-detail-section-day-total day-total)))
+
+
+(defun timeclock//toggle-notes (&rest args)
+  (if (member 'timeclock-note buffer-invisibility-spec)
+      (remove-from-invisibility-spec 'timeclock-note)
+    (add-to-invisibility-spec 'timeclock-note)))
 
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;

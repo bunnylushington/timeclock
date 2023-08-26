@@ -52,6 +52,9 @@
 (defvar timeclock/db-file "/tmp/timeclock.db"
   "The filename of the timeclock sqlite DB.")
 
+(defvar timeclock/boolean-flag-text "Is Featue"
+  "The prompt for the boolean task flag.")
+
 (defun timeclock/database (&optional file)
   (if (sqlitep timeclock/db)
       (timeclock//create-schema timeclock/db)
@@ -67,12 +70,8 @@
         (or task
             (completing-read "Task: " (timeclock//tasks))))
        (is-feature
-        (or is-feature
-            (timeclock//y-or-n
-             (completing-read
-              "Is Feature? (y/n): "
-              '("y" "n") nil t
-              (timeclock//feature-for-task task)))))
+        (or is-feature (timeclock//bool-to-int
+                        (y-or-n-p timeclock/boolean-flag-text))))
        (notes (or notes (read-string "Notes: "))))
     (when (timeclock/active) (timeclock/punch-out))
     (timeclock//punch-in task is-feature notes)))
@@ -356,9 +355,6 @@
 
 (defun timeclock//int-to-bool (obj)
   (if (or (null obj) (= 0 obj)) nil t))
-
-(defun timeclock//y-or-n (obj)
-  (if (string= "y" obj) 1 0))
 
 (defun timeclock//int-to-str (obj)
   (if (= 1 obj) "y" "n"))

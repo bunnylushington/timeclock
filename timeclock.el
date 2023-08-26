@@ -398,12 +398,14 @@
   (let* ((hours (/ secs 3600))
          (minutes (/ (% secs 3600) 60))
          (seconds (% secs 60)))
-    (format "%s%s"
-            (if (> hours 0)
-                (format "%sh " hours)
-              "")
-            (if (> minutes 0)
-                (format "%sm " minutes)
-              ""))))
+    (if (and (< minutes 1) (< hours 1))
+        "<1m"
+      (format "%s%s"
+              (if (> hours 0)
+                  (format "%sh " hours)
+                "")
+              (if (> minutes 0)
+                  (format "%sm " minutes)
+                "")))))
 
 (provide 'timeclock)

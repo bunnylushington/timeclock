@@ -1,5 +1,40 @@
 ;; be sure to set timeclock/db-file!
 
+(require 'dash)
+
+(defface timeclock-header-1-face
+  '((t :inherit font-lock-function-name-face
+       :height 1.5))
+  "Timeclock header 1 face"
+  :group 'timeclock)
+
+(defface timeclock-header-2-face
+  '((t :inherit font-lock-warning-face
+       :height 1.3))
+  "Timeclock header 2 face"
+  :group 'timeclock)
+
+(defface timeclock-smallskip-face
+  '((t :inherit default
+       :height 0.3))
+  "Timeclock smallskip face"
+  :group 'timeclock)
+
+(defface timeclock-time-detail-face
+  '((t :inherit font-lock-string-face))
+  "Timeclock time face"
+  :group 'timeclock)
+
+(defface timeclock-time-elapsed-face
+  '((t :inherit font-lock-comment-face))
+  "Timeclock time face"
+  :group 'timeclock)
+
+(defface timeclock-description-face
+  '((t :inherit font-lock-comment-face))
+  "Timeclock range description face"
+  :group 'timeclock)
+
 (defvar timeclock/db nil
   "The sqlite object for timeclock operations.")
 
@@ -12,10 +47,6 @@
     (let ((db-file (or file timeclock/db-file)))
       (setq timeclock/db (sqlite-open db-file))
       (timeclock//create-schema timeclock/db))))
-
-(defun timeclock//create-schema (db)
-  (timeclock//create-table-timeclock db)
-  db)
 
 (defun timeclock/punch-in (&optional task is-feature notes)
   "Punch in, first punching out of any active tasks."
@@ -60,118 +91,127 @@
   (let ((task (timeclock/active)))
     (if task (car task) nil)))
 
-(defface timeclock-header-1-face
-  '((t :inherit font-lock-function-name-face
-       :height 1.5))
-  "Timeclock header 1 face"
-  :group 'timeclock)
-
-(defface timeclock-header-2-face
-  '((t :inherit font-lock-warning-face
-       :height 1.3))
-  "Timeclock header 2 face"
-  :group 'timeclock)
-
-(defface timeclock-smallskip-face
-  '((t :inherit default
-       :height 0.3))
-  "Timeclock smallskip face"
-  :group 'timeclock)
-
-(defface timeclock-time-detail-face
-  '((t :inherit font-lock-string-face))
-  "Timeclock time face"
-  :group 'timeclock)
-
-(defface timeclock-time-elapsed-face
-  '((t :inherit font-lock-comment-face))
-  "Timeclock time face"
-  :group 'timeclock)
-
-
-
 (defun timeclock/report (&optional when)
-  "Run a report."
+  "Produce a timeclock report."
   (interactive)
-  (let* ((when (or when
-                   (intern (completing-read "Report Span: "
-                                            '(today
-                                              yesterday
-                                              this-week
-                                              last-week
-                                              this-month
-                                              last-month)))))
+  (let* ((span (timeclock//report-capture-span))
+         (span-description (car span))
+         (when (cadr span))
          (tasks (timeclock//report when))
-         (total 0)
          (buf (when tasks (get-buffer-create "*timeclock report*"))))
-    (when buf
-      (set-buffer buf)
-      (erase-buffer)
-      (insert (concat (propertize "Timeclock Report" 'face 'timeclock-header-1-face)
-                      "\n\n"
-                      (propertize "Summary" 'face 'timeclock-header-2-face)
-                      "\n"
-                      (propertize "\n" 'face 'timeclock-smallskip-face)))
+    (if buf
+        (progn
+          (set-buffer buf)
+          (fundamental-mode)
+          (erase-buffer)
+          (timeclock//report-summary-section-header span-description)
+          (timeclock//report-summary-section-body tasks)
+          (timeclock//report-detail-section-header)
+          (timeclock//report-detail-section-body when)
+          (view-mode)
+          (goto-char (point-min))
+          (display-buffer (current-buffer) t))
+      (message "No timeclock data for date range."))))
 
-      (dolist (task tasks)
-        (setq total (+ total (nth 1 task)))
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;
+;; Reporting Functions
+(defun timeclock//capture-spans ()
+  (let ((spans (make-hash-table :test 'equal)))
+    (puthash "Today" 'today spans)
+    (puthash "Yesterday" 'yesterday spans)
+    (puthash "This Week" 'this-week spans)
+    (puthash "Last Week" 'last-week spans)
+    (puthash "This Month" 'this-month spans)
+    (puthash "Last Month" 'last-month spans)
+    spans))
+
+(defun timeclock//report-capture-span ()
+  (let* ((spans (timeclock//capture-spans))
+         (span-text (completing-read "Report Span: "
+                                     spans nil t))
+         (span (gethash span-text spans)))
+    (list span-text span)))
+
+(defun timeclock//report-summary-section-header (span-description)
+  (insert (concat (propertize "Timeclock Report" 'face 'timeclock-header-1-face)
+                  "\n"
+                  (propertize span-description 'face 'timeclock-description-face)
+                  "\n\n"
+                  (propertize "Summary" 'face 'timeclock-header-2-face)
+                  "\n"
+                  (propertize "\n" 'face 'timeclock-smallskip-face))))
+
+(defun timeclock//report-summary-section-body (tasks)
+  (let ((total 0))
+    (dolist (task tasks)
+      (-let (((title duration is-feature) task))
+        (setq total (+ total duration))
         (insert (format
-                 "%15s%s - %s\n"
-                 (timeclock//seconds-to-display-time (nth 1 task))
-                 (if (timeclock//int-to-bool (nth 2 task))
-                     "*" " ")
-                 (nth 0 task))))
-      (insert (concat (make-string 50 ?-) "\n"))
-      (insert (format "%15s  - Total\n"
-                      (timeclock//seconds-to-display-time total)))
-      (insert (concat "\n\n"
-                      (propertize "Detail" 'face 'timeclock-header-2-face)
-                      "\n"
-                      (propertize "\n" 'face 'timeclock-smallskip-face)))
-      (let (current-day
-            previous-current-day
-            (day-total 0)
-            (day-task-counter 0))
-        (dolist (task (timeclock//detail when))
+                 "%15s%s %s\n"
+                 (timeclock//seconds-to-display-time duration)
+                 (if (timeclock//int-to-bool is-feature) "*" " ")
+                 title))))
+    (insert (concat (make-string 50 ?-) "\n"))
+    (insert (format "%15s  Total\n"
+                    (timeclock//seconds-to-display-time total)))))
 
-          (setq current-day (format-time-string "%A %B %e" (seconds-to-time (nth 2 task))))
-          (if (not (string= current-day previous-current-day))
-              ;; this is when it's a new day
-              (progn
-                (when (> day-total 0)
-                  (insert (format "%s%s\n"
-                                  (make-string 19 ?\ )
-                                  (timeclock//seconds-to-display-time day-total))))
-                (setq day-total (- (nth 3 task) (nth 2 task))
-                      day-task-counter 0
-                      previous-current-day current-day)
-                (insert (format "%s%s\n"
-                                (propertize "\n" 'face 'timeclock-smallskip-face)
-                                current-day)))
-            ;; this is when it's the same day
+(defun timeclock//report-detail-section-header ()
+  (insert (concat "\n\n"
+                  (propertize "Detail" 'face 'timeclock-header-2-face)
+                  "\n"
+                  (propertize "\n" 'face 'timeclock-smallskip-face))))
+
+(defun timeclock//report-detail-section-day-total (day-total)
+  (insert (format "%s%s\n"
+                  (make-string 19 ?\ )
+                  (timeclock//seconds-to-display-time day-total))))
+
+
+(defun timeclock//report-detail-section-body (when)
+  (let (current-day
+        previous-current-day
+        (day-total 0))
+    (dolist (task (timeclock//detail when))
+      (-let (((title is-feature punch-in punch-out notes duration) task))
+        (setq current-day (format-time-string "%A %B %e" (seconds-to-time punch-in)))
+        (if (not (string= current-day previous-current-day))
+            ;; a brand new day
             (progn
-              (setq day-task-counter (+ 1 day-task-counter)
-                    day-total (+ day-total (- (nth 3 task) (nth 2 task))))))
-          (let ((elapsed (timeclock//seconds-to-display-time (nth 5 task))))
-            (insert (format
-                     "    %s  %-8s   %s %s\n"
-                     (propertize
-                      (format "%s - %s"
-                              (format-time-string "%R" (seconds-to-time (nth 2 task)))
-                              (format-time-string "%R" (seconds-to-time (nth 3 task))))
-                      'face 'timeclock-time-detail-face)
-                     (propertize elapsed 'face 'timeclock-time-elapsed-face)
-                     (nth 0 task)
-                     (nth 4 task)))))
-        (insert (format "%s%s\n"
-                        (make-string 19 ?\ )
-                        (timeclock//seconds-to-display-time day-total))))
+              (when previous-current-day
+                (timeclock//report-detail-section-day-total day-total))
+              (setq day-total duration
+                    previous-current-day current-day)
+              (insert (format "%s%s\n"
+                              (propertize "\n" 'face 'timeclock-smallskip-face)
+                              current-day)))
+          ;; same day as the last task
+          (setq day-total (+ duration day-total)))
 
-      (display-buffer (current-buffer) t))))
+          (insert (format
+                   "    %s  %-8s  %s\n"
+                   (propertize (format "%s - %s"
+                                       (format-time-string "%R" (seconds-to-time punch-in))
+                                       (if punch-out
+                                           (format-time-string "%R" (seconds-to-time punch-out))
+                                         (make-string 5 ?\ )))
+                               'face 'timeclock-time-detail-face)
+                   (propertize (timeclock//seconds-to-display-time duration)
+                               'face 'timeclock-time-elapsed-face)
+                   title))))
+    ;; total for the last day of the report.
+    (timeclock//report-detail-section-day-total day-total)))
+
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
-;; Utility functions
+;; Utility Functions
+
+(defun timeclock//create-schema (db)
+  (timeclock//create-table-timeclock db)
+  db)
 
 (defun timeclock//tasks ()
   (mapcar (lambda (task) (car task)) (timeclock//all-tasks)))
@@ -242,7 +282,6 @@
               WHERE " range "
               GROUP BY task, is_feature"))))
 
-
 ;; NB: these epoch seconds are not converted to localtime because it
 ;; appears (second-to-time) or (format-time-string) does that itself.
 (defun timeclock//detail (when)
@@ -255,7 +294,8 @@
                      clock_in,
                      clock_out,
                      notes,
-                     (clock_out - clock_in)
+                     coalesce(duration,
+                              (unixepoch('now') - clock_in))
               FROM timeclock
               WHERE " range))))
 

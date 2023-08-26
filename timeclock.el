@@ -179,7 +179,7 @@
 
 (defun timeclock//report-detail-section-day-total (day-total)
   (insert (format "%s%s\n"
-                  (make-string 19 ?\ )
+                  (make-string 20 ?\ )
                   (timeclock//seconds-to-display-time day-total))))
 
 
@@ -204,7 +204,7 @@
           (setq day-total (+ duration day-total)))
 
           (insert (format
-                   "  %s %s  %-8s  %s\n%s"
+                   "  %s %s  %8s  %s\n%s"
                    (if (timeclock//int-to-bool is-feature) "•" " ")
                    (propertize (format "%s - %s"
                                        (format-time-string "%R" (seconds-to-time punch-in))
@@ -399,13 +399,13 @@
          (minutes (/ (% secs 3600) 60))
          (seconds (% secs 60)))
     (if (and (< minutes 1) (< hours 1))
-        "<1m"
+        "<1m "
       (format "%s%s"
               (if (> hours 0)
                   (format "%sh " hours)
-                "")
+                "   ")
               (if (> minutes 0)
                   (format "%sm " minutes)
-                "")))))
+                "   ")))))
 
 (provide 'timeclock)

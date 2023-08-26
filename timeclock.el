@@ -165,7 +165,7 @@
         (insert (format
                  "%15s%s %s\n"
                  (timeclock//seconds-to-display-time duration)
-                 (if (timeclock//int-to-bool is-feature) "*" " ")
+                 (if (timeclock//int-to-bool is-feature) "•" " ")
                  title))))
     (insert (concat (make-string 50 ?-) "\n"))
     (insert (format "%15s  Total\n"
@@ -204,7 +204,8 @@
           (setq day-total (+ duration day-total)))
 
           (insert (format
-                   "    %s  %-8s  %s\n%s"
+                   "  %s %s  %-8s  %s\n%s"
+                   (if (timeclock//int-to-bool is-feature) "•" " ")
                    (propertize (format "%s - %s"
                                        (format-time-string "%R" (seconds-to-time punch-in))
                                        (if punch-out

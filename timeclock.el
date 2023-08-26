@@ -152,7 +152,7 @@
                   "\n"
                   (propertize span-description 'face 'timeclock-description-face)
                   "   "
-                  (buttonize "show notes" #'timeclock//toggle-notes)
+                  (buttonize "[toggle notes]" #'timeclock//toggle-notes)
                   "\n\n"
                   (propertize "Summary" 'face 'timeclock-header-2-face)
                   "\n"

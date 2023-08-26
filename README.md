@@ -1,19 +1,84 @@
 # timeclock.el
 
-Provide a simple punch-in and -out clock for tasks.
+Provide a simple punch-in and -out clock for tasks and associated
+report generation.
 
 ## Rationale
 
 While org-mode's clock functionality is useful, I wanted something
 much lighter weight to keep track of where I'm spending my work time.
-timeclock.el uses sqlite as a datastore and has the benefit of being
-**much** faster than org and has the benefit of completion for task
-names.
+timeclock.el uses sqlite as a datastore allowing for fast arbitrary
+queries.
 
-There is a flag `is-feature` that can be optionally set for each
-punch-in; these tasks are reflected in the report by an asterisk.
+## Usage
 
-## Configuration
+  * `timeclock/punch-in` start a task (potentially punching out first)
+  * `timeclock/punch-out` stop a task
+  * `timeclock/report` generate a report
+  * `timeclock/active` show the current task and elapsed time in the echo area
+  * `timeclock/active-task-name` returns the active task name or nil
+
+No keybindings have been set.
+
+### Notes
+
+#### Database
+
+Timeclock data are stored in a SQLite database.  The location of this
+database can be configured by setting the variable `timeclock/db-file`
+By default it is named `timeclock.db` in the user-emacs-directory.
+
+A handle to the sqlite object can be obtained with the function
+`timeclock/database`.  Calling this function will create the file and
+schema if necessary.
+
+The DB may be accessed directly.  Note that the 'clock_in' and
+'clock_out' attributes are integers representing epoch seconds.
+
+#### Report Types
+
+A number of reports (e.g., "Today", "Yesterday") are
+defined.  To add custom reports put entries in the hashtable
+`timeclock/report-span-hash`.  The key is a human readable description
+of the span and the value a sqlite where clause.
+
+For example, to create a report on all tasks starting with "t":
+
+``` emacs-lisp
+(puthash "Starts with t"
+    "substr(task, 1, 1) = 't'"
+    timeclock/report-span-hash)
+```
+
+#### Active Tasks
+
+There may be only zero or one tasks active at any time.  Quitting
+Emacs will not by default punch out of a currently active task.
+`timeclock/maybe-punch-out` is provided as a possible hook function;
+the user will be queried if they want to punch out before quitting.
+
+#### is-feature Indicator
+
+There is a boolean flag `is-feature` that can be optionally set for
+each punch-in; these tasks are reflected in the report by a bullet.
+When punching into a task the user will be asked if this flag should
+be set.  The prompt text can be customized by setting the variable
+`timeclock/feature-text`.  The is-feature indicator in reports can be
+customized by setting `timeclock/feature-indicator`
+
+Without prefix arguments `timeclock/report` will report on all tasks,
+both those with the is-feature flag set and not.  With one prefix
+argument (`C-u M-x timeclock/report`) only those tasks with is-feature
+set will be reported.  With two prefix arguments (`C-u C-u M-x
+timeclock/report`) only those tasks without is-feature set will be
+reported.
+
+#### Faces
+
+A handful of faces are defined for displaying reports.  These all have
+the prefix `timeclock-`.
+
+## Installation
 
 ``` emacs-lisp
 (use-package timeclock
@@ -26,16 +91,39 @@ punch-in; these tasks are reflected in the report by an asterisk.
         (expand-file-name "timeclock.db" user-emacs-directory)))
 ```
 
-## Usage
 
-  * `timeclock/punch-in` start a task (potentially punching out of an
-    existing one)
-  * `timeclock/punch-out` stop a task
-  * `timeclock/report` generate a report for a time period (today, yesterday, etc.)
-  * `timeclock/active` show the current task in the echo area
+## Tab Bar Configuration
 
-The function `timeclock/active-task-name` returns the name of the
-active task or nil if none are active.
+I find it useful to have punch in/out access directly in the tab-bar.
+This functionality is not part of timeclock but here's one possible
+implementation.  Clicking on the "➕" will punch into a task that will
+then be displayed in the tab-bar.  Clicking on the task name will punch out.
+
+``` emacs-lisp
+  (defvar ii/timeclock-in-arrow
+    (propertize " ➕ " 'display '(raise -0.20)))
+
+  (defun ii/timeclock-active-task ()
+    "If there's a current timeclock  task, display it."
+    (when (fboundp #'timeclock/active-task-name)
+      (let ((task (timeclock/active-task-name)))
+        (if (not (null task))
+            (propertize task 'display '(raise -0.20))))))
+
+  (defun ii/tab-bar-timeclock ()
+    "Punch in/out in the tab-bar"
+    `((ii/timeclock-out
+       menu-item ,(ii/timeclock-active-task) timeclock/punch-out
+       :help "Punch out of this task.")
+      (ii/timeclock-in
+       menu-item ,ii/timeclock-in-arrow timeclock/punch-in
+       :help "Punch into new task.")))
+
+  (setq tab-bar-format '(tab-bar-format-tabs
+                         tab-bar-format-align-right
+                         ii/tab-bar-timeclock))
+```
+
 
 ## Author
 

@@ -1,6 +1,12 @@
-;; be sure to set timeclock/db-file!
+;;; timeclock.el --- timeclock reporting -*- lexical-binding:t -*-
+
+;;; Commentary:
+;;
+;; timeclock.el provides basic time keeping and reporting functionality.
+
 
 (require 'dash)
+(require 's)
 
 (defface timeclock-header-1-face
   '((t :inherit font-lock-function-name-face
@@ -49,13 +55,21 @@
 (defvar timeclock/db nil
   "The sqlite object for timeclock operations.")
 
-(defvar timeclock/db-file "/tmp/timeclock.db"
+(defvar timeclock/db-file
+  (expand-file-name "timeclock.db" user-emacs-directory)
   "The filename of the timeclock sqlite DB.")
 
-(defvar timeclock/boolean-flag-text "Is Feature"
-  "The prompt for the boolean task flag.")
+(defvar timeclock/feature-text "Is Feature"
+  "The prompt for the is-feature flag.")
+
+(defvar timeclock/feature-indicator "•"
+  "Character to denote set is-feature flag in reports.")
+
+(defvar timeclock/report-span-hash (timeclock//default-report-span-hash)
+  "Hash enumerating possible report time spans.")
 
 (defun timeclock/database (&optional file)
+  "Create the database schema in FILE; return sqlite object."
   (if (sqlitep timeclock/db)
       (timeclock//create-schema timeclock/db)
     (let ((db-file (or file timeclock/db-file)))
@@ -63,7 +77,7 @@
       (timeclock//create-schema timeclock/db))))
 
 (defun timeclock/punch-in (&optional task is-feature notes)
-  "Punch in, first punching out of any active tasks."
+  "Punch in, first punching out of an active task."
   (interactive)
   (let*
       ((task
@@ -71,15 +85,23 @@
             (completing-read "Task: " (timeclock//tasks))))
        (is-feature
         (or is-feature (timeclock//bool-to-int
-                        (y-or-n-p timeclock/boolean-flag-text))))
+                        (y-or-n-p timeclock/feature-text))))
        (notes (or notes (read-string "Notes: "))))
     (when (timeclock/active) (timeclock/punch-out))
     (timeclock//punch-in task is-feature notes)))
 
 (defun timeclock/punch-out ()
-  "Punch of all active tasks."
+  "Punch of active task."
   (interactive)
   (when (timeclock/active) (timeclock//punch-out)))
+
+(defun timeclock/maybe-punch-out ()
+  "Propmt user to maybe punch out of active task."
+  (interactive)
+  (when (and (timeclock/active)
+             (y-or-n-p (format "Punch out of current task (%s)?"
+                               (timeclock/active-task-name))))
+    (timeclock//punch-out)))
 
 (defun timeclock/active ()
   "Return the active task, or nil if none."
@@ -101,13 +123,13 @@
   (let ((task (timeclock/active)))
     (if task (car task) nil)))
 
-(defun timeclock/report (&optional when)
+(defun timeclock/report (&optional feature-flag span-text)
   "Produce a timeclock report."
-  (interactive)
-  (let* ((span (timeclock//report-capture-span))
+  (interactive "p")
+  (let* ((span (timeclock//report-capture-span span-text))
          (span-description (car span))
-         (when (cadr span))
-         (tasks (timeclock//report when))
+         (range (cadr span))
+         (tasks (timeclock//report range feature-flag))
          (buf (when tasks (get-buffer-create "*timeclock report*"))))
     (if buf
         (progn
@@ -118,10 +140,12 @@
           (timeclock//report-summary-section-header span-description)
           (timeclock//report-summary-section-body tasks)
           (timeclock//report-detail-section-header)
-          (timeclock//report-detail-section-body when)
+          (timeclock//report-detail-section-body range feature-flag)
           (view-mode)
           (goto-char (point-min))
-          (display-buffer (current-buffer) t))
+          (display-buffer (current-buffer) t)
+          (message "Generated timeclock report for %s"
+                   (s-downcase span-description)))
       (message "No timeclock data for date range."))))
 
 
@@ -129,22 +153,30 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
 ;; Reporting Functions
-(defun timeclock//capture-spans ()
+
+(defun timeclock//feature-flag-clause-hash ()
+  (let ((clauses (make-hash-table)))
+    (puthash 4  "AND is_feature = 1" clauses)
+    (puthash 16 "AND is_feature = 0" clauses)
+    clauses))
+
+(defun timeclock//default-report-span-hash ()
   (let ((spans (make-hash-table :test 'equal)))
-    (puthash "Today" 'today spans)
-    (puthash "Yesterday" 'yesterday spans)
-    (puthash "This Week" 'this-week spans)
-    (puthash "Last Week" 'last-week spans)
-    (puthash "This Month" 'this-month spans)
-    (puthash "Last Month" 'last-month spans)
+    (puthash "Today"      (timeclock//span-today)      spans)
+    (puthash "Yesterday"  (timeclock//span-yesterday)  spans)
+    (puthash "This Week"  (timeclock//span-this-week)  spans)
+    (puthash "Last Week"  (timeclock//span-last-week)  spans)
+    (puthash "This Month" (timeclock//span-this-month) spans)
+    (puthash "Last Month" (timeclock//span-last-month) spans)
     spans))
 
-(defun timeclock//report-capture-span ()
-  (let* ((spans (timeclock//capture-spans))
-         (span-text (completing-read "Report Span: "
-                                     spans nil t))
-         (span (gethash span-text spans)))
-    (list span-text span)))
+(defun timeclock//report-capture-span (&optional span-text)
+  (let* ((span-text (or span-text
+                        (completing-read
+                         "Report Span: "
+                         timeclock/report-span-hash nil t)))
+         (span-clause (gethash span-text timeclock/report-span-hash)))
+    (list span-text span-clause)))
 
 (defun timeclock//report-summary-section-header (span-description)
   (insert (concat (propertize "Timeclock Report" 'face 'timeclock-header-1-face)
@@ -165,7 +197,8 @@
         (insert (format
                  "%15s%s %s\n"
                  (timeclock//seconds-to-display-time duration)
-                 (if (timeclock//int-to-bool is-feature) "•" " ")
+                 (if (timeclock//int-to-bool is-feature)
+                     timeclock/feature-indicator " ")
                  title))))
     (insert (concat (make-string 50 ?-) "\n"))
     (insert (format "%15s  Total\n"
@@ -183,11 +216,11 @@
                   (timeclock//seconds-to-display-time day-total))))
 
 
-(defun timeclock//report-detail-section-body (when)
+(defun timeclock//report-detail-section-body (range feature-flag)
   (let (current-day
         previous-current-day
         (day-total 0))
-    (dolist (task (timeclock//detail when))
+    (dolist (task (timeclock//detail range feature-flag))
       (-let (((title is-feature punch-in punch-out notes duration) task))
         (setq current-day (format-time-string "%A %B %e" (seconds-to-time punch-in)))
         (if (not (string= current-day previous-current-day))
@@ -205,7 +238,8 @@
 
           (insert (format
                    "  %s %s  %8s  %s\n%s"
-                   (if (timeclock//int-to-bool is-feature) "•" " ")
+                   (if (timeclock//int-to-bool is-feature)
+                       timeclock/feature-indicator " ")
                    (propertize (format "%s - %s"
                                        (format-time-string "%R" (seconds-to-time punch-in))
                                        (if punch-out
@@ -287,18 +321,11 @@
       FROM timeclock
       ORDER BY entry_id ASC")))
 
-(defun timeclock//range (when)
-  (cond
-   ((eq when 'yesterday) (timeclock//yesterday))
-   ((eq when 'this-week) (timeclock//this-week))
-   ((eq when 'last-week) (timeclock//last-week))
-   ((eq when 'this-month) (timeclock//this-month))
-   ((eq when 'last-month) (timeclock//last-month))
-   (t (timeclock//today))))
+(defun timeclock//feature-clause (flag)
+  (gethash flag (timeclock//feature-flag-clause-hash) ""))
 
-(defun timeclock//report (when)
-  (let ((db (timeclock/database))
-        (range (timeclock//range when)))
+(defun timeclock//report (range feature-flag)
+  (let ((db (timeclock/database)))
     (sqlite-select
      db
      (concat "SELECT task,
@@ -306,14 +333,13 @@
                         (unixepoch('now') - clock_in))),
                      is_feature
               FROM timeclock
-              WHERE " range "
+              WHERE " range " " (timeclock//feature-clause feature-flag) "
               GROUP BY task, is_feature"))))
 
 ;; NB: these epoch seconds are not converted to localtime because it
 ;; appears (second-to-time) or (format-time-string) does that itself.
-(defun timeclock//detail (when)
-  (let ((db (timeclock/database))
-        (range (timeclock//range when)))
+(defun timeclock//detail (range feature-flag)
+  (let ((db (timeclock/database)))
     (sqlite-select
      db
      (concat "SELECT task,
@@ -324,7 +350,9 @@
                      coalesce(duration,
                               (unixepoch('now') - clock_in))
               FROM timeclock
-              WHERE " range))))
+              WHERE " range " " (timeclock//feature-clause feature-flag)
+              " ORDER BY clock_in"
+              ))))
 
 (defun timeclock//create-table-timeclock (db)
   (sqlite-execute
@@ -361,33 +389,33 @@
   (if (= 1 obj) "y" "n"))
 
 
-(defun timeclock//today ()
+(defun timeclock//span-today ()
   "unixepoch(clock_in, 'unixepoch', 'localtime') >=
    unixepoch('now', 'localtime', 'start of day')")
 
-(defun timeclock//yesterday ()
+(defun timeclock//span-yesterday ()
   "unixepoch(clock_in, 'unixepoch', 'localtime') >=
    unixepoch('now', 'localtime', 'start of day', '-1 day')
    AND
    unixepoch(clock_in, 'unixepoch', 'localtime') <
    unixepoch('now', 'localtime', 'start of day')")
 
-(defun timeclock//this-week ()
+(defun timeclock//span-this-week ()
   "unixepoch(clock_in, 'unixepoch', 'localtime') >=
    unixepoch('now', 'localtime',  'weekday 1', '-7 days', 'start of day')")
 
-(defun timeclock//last-week ()
+(defun timeclock//span-last-week ()
   "unixepoch(clock_in, 'unixepoch', 'localtime') >=
    unixepoch('now', 'localtime', 'weekday 1', '-14 days', 'start of day')
    AND
    unixepoch(clock_in, 'unixepoch', 'localtime') <
    unixepoch('now', 'localtime', 'weekday 1', '-7 days', 'start of day')")
 
-(defun timeclock//this-month ()
+(defun timeclock//span-this-month ()
   "unixepoch(clock_in, 'unixepoch', 'localtime') >=
    unixepoch('now', 'localtime', 'start of month')")
 
-(defun timeclock//last-month ()
+(defun timeclock//span-last-month ()
   "unixepoch(clock_in, 'unixepoch', 'localtime') >=
    unixepoch('now', 'localtime', 'start of month', '-1 month')
    AND
@@ -399,7 +427,7 @@
          (minutes (/ (% secs 3600) 60))
          (seconds (% secs 60)))
     (if (and (< minutes 1) (< hours 1))
-        "<1m "
+        " <1m "
       (format "%s%s"
               (if (> hours 0)
                   (format "%sh " hours)

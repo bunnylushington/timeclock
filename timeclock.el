@@ -1,4 +1,6 @@
-;;; timeclock.el --- timeclock reporting -*- lexical-binding:t -*-
+;;; timeclock.el --- timeclock reporting
+;; Author: Bunny Lushington <bunny@bapi.us>
+;; Package-Requires: (dash s)
 
 ;;; Commentary:
 ;;
@@ -64,9 +66,6 @@
 
 (defvar timeclock/feature-indicator "•"
   "Character to denote set is-feature flag in reports.")
-
-(defvar timeclock/report-span-hash (timeclock//default-report-span-hash)
-  "Hash enumerating possible report time spans.")
 
 (defun timeclock/database (&optional file)
   "Create the database schema in FILE; return sqlite object."
@@ -159,16 +158,6 @@
     (puthash 4  "AND is_feature = 1" clauses)
     (puthash 16 "AND is_feature = 0" clauses)
     clauses))
-
-(defun timeclock//default-report-span-hash ()
-  (let ((spans (make-hash-table :test 'equal)))
-    (puthash "Today"      (timeclock//span-today)      spans)
-    (puthash "Yesterday"  (timeclock//span-yesterday)  spans)
-    (puthash "This Week"  (timeclock//span-this-week)  spans)
-    (puthash "Last Week"  (timeclock//span-last-week)  spans)
-    (puthash "This Month" (timeclock//span-this-month) spans)
-    (puthash "Last Month" (timeclock//span-last-month) spans)
-    spans))
 
 (defun timeclock//report-capture-span (&optional span-text)
   (let* ((span-text (or span-text
@@ -421,6 +410,19 @@
    AND
    unixepoch(clock_in, 'unixepoch', 'localtime') <
    unixepoch('now', 'localtime', 'start of month')")
+
+(defun timeclock//default-report-span-hash ()
+  (let ((spans (make-hash-table :test 'equal)))
+    (puthash "Today"      (timeclock//span-today)      spans)
+    (puthash "Yesterday"  (timeclock//span-yesterday)  spans)
+    (puthash "This Week"  (timeclock//span-this-week)  spans)
+    (puthash "Last Week"  (timeclock//span-last-week)  spans)
+    (puthash "This Month" (timeclock//span-this-month) spans)
+    (puthash "Last Month" (timeclock//span-last-month) spans)
+    spans))
+
+(defvar timeclock/report-span-hash (timeclock//default-report-span-hash)
+  "Hash enumerating possible report time spans.")
 
 (defun timeclock//seconds-to-display-time (secs)
   (let* ((hours (/ secs 3600))

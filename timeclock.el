@@ -1,5 +1,6 @@
-;;; timeclock.el --- timeclock reporting
+;;; timeclock.el --- timeclock reporting -*- lexical-binding: t -*-
 ;; Author: Bunny Lushington <bunny@bapi.us>
+;; Version: 1.0
 ;; Package-Requires: (dash s)
 
 ;;; Commentary:
@@ -391,14 +392,14 @@
 
 (defun timeclock//span-this-week ()
   "unixepoch(clock_in, 'unixepoch', 'localtime') >=
-   unixepoch('now', 'localtime',  'weekday 1', '-7 days', 'start of day')")
+   unixepoch('now', 'localtime',  'weekday 1', 'start of day')")
 
 (defun timeclock//span-last-week ()
   "unixepoch(clock_in, 'unixepoch', 'localtime') >=
-   unixepoch('now', 'localtime', 'weekday 1', '-14 days', 'start of day')
+   unixepoch('now', 'localtime', 'weekday 1', '-7 days', 'start of day')
    AND
    unixepoch(clock_in, 'unixepoch', 'localtime') <
-   unixepoch('now', 'localtime', 'weekday 1', '-7 days', 'start of day')")
+   unixepoch('now', 'localtime', 'weekday 1', 'start of day')")
 
 (defun timeclock//span-this-month ()
   "unixepoch(clock_in, 'unixepoch', 'localtime') >=

@@ -78,6 +78,15 @@ reported.
 A handful of faces are defined for displaying reports.  These all have
 the prefix `timeclock-`.
 
+#### Hooks
+
+Some hooks are provided:
+
+  * timeclock/pre-punch-in-hook
+  * timeclock/post-punch-in-hook
+  * timeclock/pre-punch-out-hook
+  * timeclcok/post-punch-out-hook
+
 ## Installation
 
 ``` emacs-lisp

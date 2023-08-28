@@ -68,6 +68,18 @@
 (defvar timeclock/feature-indicator "•"
   "Character to denote set is-feature flag in reports.")
 
+(defvar timeclock/pre-punch-in-hook nil
+  "Normal hook run before punching in.")
+
+(defvar timeclock/post-punch-in-hook nil
+  "Normal hook run after punching in.")
+
+(defvar timeclock/pre-punch-out-hook nil
+  "Normal hook run before punching out.")
+
+(defvar timeclock/post-punch-out-hook nil
+  "Normal hook run after punching out.")
+
 (defun timeclock/database (&optional file)
   "Create the database schema in FILE; return sqlite object."
   (if (sqlitep timeclock/db)
@@ -88,12 +100,17 @@
                         (y-or-n-p timeclock/feature-text))))
        (notes (or notes (read-string "Notes: "))))
     (when (timeclock/active) (timeclock/punch-out))
-    (timeclock//punch-in task is-feature notes)))
+    (run-hooks 'timeclock/pre-punch-in-hook)
+    (timeclock//punch-in task is-feature notes)
+    (run-hooks 'timeclock/post-punch-in-hook)))
 
 (defun timeclock/punch-out ()
   "Punch of active task."
   (interactive)
-  (when (timeclock/active) (timeclock//punch-out)))
+  (when (timeclock/active)
+    (run-hooks 'timeclock/pre-punch-out-hook)
+    (timeclock//punch-out)
+    (run-hooks 'timeclock/post-punch-out-hook)))
 
 (defun timeclock/maybe-punch-out ()
   "Propmt user to maybe punch out of active task."

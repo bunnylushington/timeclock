@@ -68,6 +68,9 @@
 (defvar timeclock/feature-indicator "•"
   "Character to denote set is-feature flag in reports.")
 
+(defvar timeclock/start-of-week 1
+  "Day a week starts on, 0-6, Sunday is 0.")
+
 (defvar timeclock/pre-punch-in-hook nil
   "Normal hook run before punching in.")
 
@@ -408,15 +411,30 @@
    unixepoch('now', 'localtime', 'start of day')")
 
 (defun timeclock//span-this-week ()
-  "unixepoch(clock_in, 'unixepoch', 'localtime') >=
-   unixepoch('now', 'localtime',  'weekday 1', 'start of day')")
+  (let ((dow (or timeclock/start-of-week 1)))
+    (format
+"unixepoch(clock_in, 'unixepoch', 'localtime') >=
+ iif(strftime('%%w', 'now', 'localtime') = '%1$d',
+    unixepoch('now', 'localtime', 'weekday %1$d', 'start of day'),
+    unixepoch('now', 'localtime', 'weekday %1$d', '-7 days', 'start of day'))"
+dow)))
 
 (defun timeclock//span-last-week ()
-  "unixepoch(clock_in, 'unixepoch', 'localtime') >=
-   unixepoch('now', 'localtime', 'weekday 1', '-7 days', 'start of day')
-   AND
-   unixepoch(clock_in, 'unixepoch', 'localtime') <
-   unixepoch('now', 'localtime', 'weekday 1', 'start of day')")
+  (let ((dow (or timeclock/start-of-week 1)))
+    (format
+"unixepoch(clock_in, 'unixepoch', 'localtime') >=
+ -- beginning of last week
+ iif(strftime('%%w', 'now', 'localtime') = '%1$d',
+    unixepoch('now', 'localtime', 'weekday %1$d', '-7 days', 'start of day'),
+    unixepoch('now', 'localtime', 'weekday %1$d', '-14 days', 'start of day'))
+ AND
+ -- end of last week
+ unixepoch(clock_in, 'unixepoch', 'localtime') <
+ iif(strftime('%%w', 'now', 'localtime') = '%1$d',
+    unixepoch('now', 'localtime', 'weekday %1$d', 'start of day'),
+    unixepoch('now', 'localtime', 'weekday %1$d', '-7 days', 'start of day'));
+"
+dow)))
 
 (defun timeclock//span-this-month ()
   "unixepoch(clock_in, 'unixepoch', 'localtime') >=

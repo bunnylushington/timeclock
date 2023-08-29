@@ -432,7 +432,7 @@ dow)))
  unixepoch(clock_in, 'unixepoch', 'localtime') <
  iif(strftime('%%w', 'now', 'localtime') = '%1$d',
     unixepoch('now', 'localtime', 'weekday %1$d', 'start of day'),
-    unixepoch('now', 'localtime', 'weekday %1$d', '-7 days', 'start of day'));
+    unixepoch('now', 'localtime', 'weekday %1$d', '-7 days', 'start of day'))
 "
 dow)))
 

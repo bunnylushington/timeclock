@@ -23,18 +23,6 @@
   "Timeclock header 2 face"
   :group 'timeclock)
 
-(defface timeclock-smallskip-face
-  '((t :inherit default
-       :height 0.3))
-  "Timeclock smallskip face"
-  :group 'timeclock)
-
-(defface timeclock-medskip-face
-  '((t :inherit default
-       :height 0.5))
-  "Timeclock smallskip face"
-  :group 'timeclock)
-
 (defface timeclock-time-detail-face
   '((t :inherit font-lock-string-face))
   "Timeclock time face"
@@ -158,9 +146,9 @@
           (erase-buffer)
           (add-to-invisibility-spec 'timeclock-note)
           (timeclock//report-summary-section-header span-description)
-          (timeclock//report-summary-section-body tasks)
+          (timeclock//report-summary-section-table tasks)
           (timeclock//report-detail-section-header)
-          (timeclock//report-detail-section-body range feature-flag)
+          (timeclock//report-detail-section-table range feature-flag)
           (view-mode)
           (goto-char (point-min))
           (display-buffer (current-buffer) t)
@@ -195,80 +183,174 @@
                   "   "
                   (buttonize "[toggle notes]" #'timeclock//toggle-notes)
                   "\n\n"
-                  (propertize "Summary" 'face 'timeclock-header-2-face)
-                  "\n"
-                  (propertize "\n" 'face 'timeclock-smallskip-face))))
+                  (propertize "Summary\n"
+                              'face 'timeclock-header-2-face
+                              'line-spacing 0.3))))
 
-(defun timeclock//report-summary-section-body (tasks)
-  (let ((total 0))
-    (dolist (task tasks)
-      (-let (((title duration is-feature) task))
-        (setq total (+ total duration))
-        (insert (format
-                 "%15s%s %s\n"
-                 (timeclock//seconds-to-display-time duration)
-                 (if (timeclock//int-to-bool is-feature)
-                     timeclock/feature-indicator " ")
-                 title))))
-    (insert (concat (make-string 50 ?-) "\n"))
-    (insert (format "%15s  Total\n"
+(defun timeclock//report-summary-section-table (tasks)
+  (let (table
+        (total (-reduce '+ (--map (nth 1 it) tasks))))
+    (setq table
+          (make-vtable
+           :use-header-line nil
+           :insert nil
+           :face 'default
+           :objects tasks
+           :actions '(;; "unbind" the default vtable bidings
+                      "S" ignore
+                      "{" ignore
+                      "}" ignore
+                      "g" ignore
+                      "M-<left>" ignore
+                      "M-<right>" ignore)
+
+           :displayer (lambda (value index max-width table)
+                        value)
+           :formatter (lambda (value index table)
+                        (cond
+                         ((= index 0) (timeclock//seconds-to-display-time value))
+                         ((= index 1) (if (timeclock//int-to-bool value)
+                                          timeclock/feature-indicator " "))
+                         (t value)))
+           :getter (lambda (object index table)
+                     (-let (((task duration is-feature) object))
+                       (cond
+                        ((= index 0) duration)
+                        ((= index 1) is-feature)
+                        ((= index 2) task))))))
+    (vtable-insert table)
+    (goto-char (point-max))
+    (insert (concat (make-string 20 ?﹏) "\n"))
+    (insert (format "%9s\n" ;; "xxxxh  xxm"
                     (timeclock//seconds-to-display-time total)))))
 
 (defun timeclock//report-detail-section-header ()
   (insert (concat "\n\n"
-                  (propertize "Detail" 'face 'timeclock-header-2-face)
-                  "\n"
-                  (propertize "\n" 'face 'timeclock-smallskip-face))))
+                  (propertize "Detail\n"
+                              'face 'timeclock-header-2-face
+                              'line-spacing 0.3))))
 
 (defun timeclock//report-detail-section-day-total (day-total)
   (insert (format "%s%s\n"
                   (make-string 20 ?\ )
                   (timeclock//seconds-to-display-time day-total))))
 
+(cl-defstruct timeclock/task
+  "A timeclock task structure."
+  title
+  is-feature
+  punch-in
+  punch-out
+  notes
+  duration
+  entry-id)
 
-(defun timeclock//report-detail-section-body (range feature-flag)
-  (let (current-day
-        previous-current-day
-        (day-total 0))
+(defun timeclock//daily-details (range feature-flag)
+  (let (task-list)
     (dolist (task (timeclock//detail range feature-flag))
-      (-let (((title is-feature punch-in punch-out notes duration) task))
-        (setq current-day (format-time-string "%A %B %e" (seconds-to-time punch-in)))
-        (if (not (string= current-day previous-current-day))
-            ;; a brand new day
-            (progn
-              (when previous-current-day
-                (timeclock//report-detail-section-day-total day-total))
-              (setq day-total duration
-                    previous-current-day current-day)
-              (insert (format "%s%s\n"
-                              (propertize "\n" 'face 'timeclock-smallskip-face)
-                              current-day)))
-          ;; same day as the last task
-          (setq day-total (+ duration day-total)))
+      (-let (((title is-feature punch-in punch-out notes duration entry-id) task))
+        (let* ((task-day (format-time-string "%A %B %e" (seconds-to-time punch-in)))
+               (this-day-tasks (alist-get task-day task-list nil nil 'equal))
+               (task-obj (make-timeclock/task
+                          :title title
+                          :is-feature is-feature
+                          :punch-in punch-in
+                          :punch-out punch-out
+                          :notes notes
+                          :duration duration
+                          :entry-id entry-id)))
+          (setf (alist-get task-day task-list nil nil 'equal)
+                (append this-day-tasks (list task-obj))))))
+    (reverse task-list)))
 
-          (insert (format
-                   "  %s %s  %8s  %s\n%s"
-                   (if (timeclock//int-to-bool is-feature)
-                       timeclock/feature-indicator " ")
-                   (propertize (format "%s - %s"
-                                       (format-time-string "%R" (seconds-to-time punch-in))
-                                       (if punch-out
-                                           (format-time-string "%R" (seconds-to-time punch-out))
-                                         (make-string 5 ?\ )))
-                               'face 'timeclock-time-detail-face)
-                   (propertize (timeclock//seconds-to-display-time duration)
-                               'face 'timeclock-time-elapsed-face)
-                   title
-                   (if (not (string= notes ""))
-                       (propertize (format "%s%s\n"
-                                           (make-string 29 ?\ )
-                                           notes)
-                               'face 'timeclock-note-face
-                               'invisible 'timeclock-note)
-                     "")))))
-    ;; total for the last day of the report.
-    (timeclock//report-detail-section-day-total day-total)))
+(defun timeclock//calculate-daily-totals (daily-details)
+  (let (total-times)
+    (dolist (day daily-details)
+      (let ((today (car day))
+            (total (-reduce '+ (--map (timeclock/task-duration it) (cdr day)))))
+        (setq total-times (append total-times (list (list today total))))))
+    total-times))
 
+(defun timeclock//obj-to-daily-summary (tasks)
+  "Convert a list of task objects into something vtable can display.
+
+This amounts to a list of lists containing only the formatted
+attributes present in the daily detail section of the report."
+  (let (objects)
+    (dolist (task tasks)
+      (let* ((in-str (format-time-string "%R" (seconds-to-time (timeclock/task-punch-in task))))
+             (out-str (if (timeclock/task-punch-out task)
+                          (format-time-string "%R" (seconds-to-time (timeclock/task-punch-out task)))
+                        (make-string 5 ?\ )))
+             (time-range (format "%s - %s" in-str out-str))
+             (duration (timeclock//seconds-to-display-time (timeclock/task-duration task))))
+        (setq objects (append objects
+                              (list (list
+                                     (timeclock/task-is-feature task)
+                                     time-range
+                                     duration
+                                     (timeclock/task-title task)
+                                     (timeclock/task-notes task)))))))
+    objects))
+
+
+(defun timeclock//report-detail-section-table (range feature-flag)
+  (let* (day-table day-tasks
+                   (daily-details (timeclock//daily-details range feature-flag))
+                   (totals (timeclock//calculate-daily-totals daily-details)))
+    (dolist (today daily-details)
+      (insert (propertize (format "%s\n" (car today)) 'line-spacing 0.1))
+      (setq day-tasks (timeclock//obj-to-daily-summary (cdr today)))
+      (setq day-table
+            (make-vtable
+             :use-header-line nil
+             :insert nil
+             :face 'default
+             :objects day-tasks
+             :actions '("RET" (lambda (obj) (prin1 obj))
+                        ;; "unbind" the default vtable bidings
+                        "S" ignore
+                        "{" ignore
+                        "}" ignore
+                        "g" ignore
+                        "M-<left>" ignore
+                        "M-<right>" ignore)
+             :displayer (lambda (value index max-width table)
+                          (cond
+                           ((= index 0)
+                            (format "  %s"
+                                    (if (timeclock//int-to-bool value)
+                                        timeclock/feature-indicator " ")))
+                           ((= index 1)
+                            (propertize value 'face 'timeclock-time-detail-face))
+                           ((= index 2)
+                            (propertize value 'face 'timeclock-time-elapsed-face))
+                           ((= index 4)
+                            (if (not (equal "" value))
+                                 (propertize (concat "\n" (string-fill value 50) "\n")
+                                             'face 'timeclock-note-face
+                                             'line-prefix (make-string 6 ?\ )
+                                             'invisible 'timeclock-note)
+                              ""))
+                           (t value)))
+             :getter (lambda (object index table)
+                       (-let (((is-feature time-range duration task notes) object))
+                         (cond
+                          ((= index 0) is-feature)
+                          ((= index 1) time-range)
+                          ((= index 2) duration)
+                          ((= index 3) task)
+                          ((= index 4) notes)
+                          (t ""))))))
+
+      (vtable-insert day-table)
+      (goto-char (point-max))
+      (let* ((duration (car (alist-get (car today) totals)))
+             (printable (timeclock//seconds-to-display-time duration)))
+        (insert (propertize (format "%s%s\n"
+                                    (make-string 18 ?\ )
+                                    printable)
+                            'line-spacing 0.3))))))
 
 (defun timeclock//toggle-notes (&rest args)
   (if (member 'timeclock-note buffer-invisibility-spec)
@@ -358,7 +440,8 @@
                      clock_out,
                      notes,
                      coalesce(duration,
-                              (unixepoch('now') - clock_in))
+                              (unixepoch('now') - clock_in)),
+                     entry_id
               FROM timeclock
               WHERE " range " " (timeclock//feature-clause feature-flag)
               " ORDER BY clock_in"
@@ -413,16 +496,16 @@
 (defun timeclock//span-this-week ()
   (let ((dow (or timeclock/start-of-week 1)))
     (format
-"unixepoch(clock_in, 'unixepoch', 'localtime') >=
+     "unixepoch(clock_in, 'unixepoch', 'localtime') >=
  iif(strftime('%%w', 'now', 'localtime') = '%1$d',
     unixepoch('now', 'localtime', 'weekday %1$d', 'start of day'),
     unixepoch('now', 'localtime', 'weekday %1$d', '-7 days', 'start of day'))"
-dow)))
+     dow)))
 
 (defun timeclock//span-last-week ()
   (let ((dow (or timeclock/start-of-week 1)))
     (format
-"unixepoch(clock_in, 'unixepoch', 'localtime') >=
+     "unixepoch(clock_in, 'unixepoch', 'localtime') >=
  -- beginning of last week
  iif(strftime('%%w', 'now', 'localtime') = '%1$d',
     unixepoch('now', 'localtime', 'weekday %1$d', '-7 days', 'start of day'),
@@ -434,7 +517,7 @@ dow)))
     unixepoch('now', 'localtime', 'weekday %1$d', 'start of day'),
     unixepoch('now', 'localtime', 'weekday %1$d', '-7 days', 'start of day'))
 "
-dow)))
+     dow)))
 
 (defun timeclock//span-this-month ()
   "unixepoch(clock_in, 'unixepoch', 'localtime') >=
@@ -460,18 +543,15 @@ dow)))
 (defvar timeclock/report-span-hash (timeclock//default-report-span-hash)
   "Hash enumerating possible report time spans.")
 
+;; "XXXXh YYm"
 (defun timeclock//seconds-to-display-time (secs)
-  (let* ((hours (/ secs 3600))
-         (minutes (/ (% secs 3600) 60))
-         (seconds (% secs 60)))
-    (if (and (< minutes 1) (< hours 1))
-        " <1m "
-      (format "%s%s"
-              (if (> hours 0)
-                  (format "%sh " hours)
-                "   ")
-              (if (> minutes 0)
-                  (format "%sm " minutes)
-                "   ")))))
+  (let* ((seconds/hour (* 60 60))
+         (hours (/ secs seconds/hour))
+         (minutes (/ (% secs seconds/hour) 60)))
+    (format "%s %s"
+            (if (= hours 0) (make-string 5 ?\ ) (format "%4sh" hours))
+            (cond
+             ((and (= hours 0) (< minutes 1)) "<1m")
+             (t (format "%2sm" minutes))))))
 
 (provide 'timeclock)

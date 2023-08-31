@@ -333,25 +333,27 @@ attributes present in the daily detail section of the report."
                                      (timeclock/task-entry-id task)))))))
     objects))
 
-(defmacro timeclock//do-object-action (body)
+(defmacro timeclock//do-object-action (obj body)
   "Attempt to restore point after an edit action.
 
-This is bound to be at best approximate as preceeding lines may
- be inserted or removed but it's better than nothing."
-  `(let ((position (point)))
-    ,body
-    (goto-char position)))
+XXX: This macro is not hygenic; call it a WIP."
+    `(let ((eid (car (last obj))))
+       ,body
+       (goto-char (point-min))
+       (if (search-forward (concat "entry-id:" (number-to-string eid)) nil t)
+           (beginning-of-line)
+         (goto-char (point-min)))))
 
 (defun timeclock//set-object-flag (obj)
   "A vtable action to toggle the is-feature flag."
-  (timeclock//do-object-action
+  (timeclock//do-object-action obj
    (let ((id (car (last obj))))
      (timeclock//db-toggle-record-flag id)
      (timeclock/report nil timeclock/last-report-span))))
 
 (defun timeclock//delete-object (obj)
   "A vtable action to delete the current object."
-  (timeclock//do-object-action
+  (timeclock//do-object-action obj
    (let ((id (car (last obj)))
          (task (nth 3 obj)))
      (if (funcall timeclock/delete-confirmation (format "Delete \"%s\"" task))
@@ -362,7 +364,7 @@ This is bound to be at best approximate as preceeding lines may
 
 (defun timeclock//set-object-task (obj)
   "A vtable action to change the task text."
-  (timeclock//do-object-action
+  (timeclock//do-object-action obj
    (let* ((id (car (last obj)))
           (old-task (nth 3 obj))
           (new-task (completing-read
@@ -373,7 +375,7 @@ This is bound to be at best approximate as preceeding lines may
 
 (defun timeclock//adjust-object-time (obj)
   "A vtable action to adjust the punch in/out time."
-  (timeclock//do-object-action
+  (timeclock//do-object-action obj
    (let* ((id (car (last obj)))
           (task (timeclock//db-get-task id)))
      (-let (((title is-feature punch-in punch-out notes duration entry-id) (car task)))
@@ -441,15 +443,18 @@ This is bound to be at best approximate as preceeding lines may
                                             'line-prefix (make-string 6 ?\ )
                                             'invisible 'timeclock-note)
                               ""))
+                           ((= index 5)
+                            (propertize value 'invisible t))
                            (t value)))
              :getter (lambda (object index table)
-                       (-let (((is-feature time-range duration task notes) object))
+                       (-let (((is-feature time-range duration task notes id) object))
                          (cond
                           ((= index 0) is-feature)
                           ((= index 1) time-range)
                           ((= index 2) duration)
                           ((= index 3) task)
                           ((= index 4) notes)
+                          ((= index 5) (concat "entry-id:" (number-to-string id)))
                           (t ""))))))
 
       (vtable-insert day-table)

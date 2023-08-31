@@ -46,7 +46,7 @@ value will not suffice.
 
 #### Weeks
 
-The variable `timeclock/start-of-week` may be customised to an integer
+The variable `timeclock/start-of-week` may be set to an integer
 between 0 (Sunday) and 6.  It defaults to 1 (Monday) as the start of
 the week for weekly reports.
 
@@ -97,9 +97,9 @@ the user will be queried if they want to punch out before quitting.
 There is a boolean flag `is-feature` that can be optionally set for
 each punch-in; these tasks are reflected in the report by a bullet.
 When punching into a task the user will be asked if this flag should
-be set.  The prompt text can be customized by setting the variable
+be set.  The prompt text can be changed by setting the variable
 `timeclock/feature-text`.  The is-feature indicator in reports can be
-customized by setting `timeclock/feature-indicator`
+change by setting `timeclock/feature-indicator`
 
 Without prefix arguments `timeclock/report` will report on all tasks,
 both those with the is-feature flag set and not.  With one prefix

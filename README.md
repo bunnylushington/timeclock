@@ -3,6 +3,10 @@
 Provide a simple punch-in and -out clock for tasks and associated
 report generation.
 
+> Please note: this package makes heavy use of v29.1 features,
+> specifically vtables and the integrated sqlite.  It will not
+> function on previous versions.
+
 ## Rationale
 
 While org-mode's clock functionality is useful, I wanted something

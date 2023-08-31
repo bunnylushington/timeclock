@@ -1,7 +1,7 @@
 ;;; timeclock.el --- timeclock reporting -*- lexical-binding: t -*-
 ;; Author: Bunny Lushington <bunny@bapi.us>
 ;; Version: 1.0
-;; Package-Requires: (dash s)
+;; Package-Requires: (dash s vtable)
 
 ;;; Commentary:
 ;;
@@ -10,6 +10,7 @@
 
 (require 'dash)
 (require 's)
+(require 'vtable)
 
 (defface timeclock-header-1-face
   '((t :inherit font-lock-function-name-face
@@ -70,6 +71,28 @@
 
 (defvar timeclock/post-punch-out-hook nil
   "Normal hook run after punching out.")
+
+(defvar timeclock/last-report-span nil
+  "*Most recent report span.")
+
+(defvar timeclock/delete-confirmation #'y-or-n-p
+  "Function to confirm timeclock entry deletion.
+To never confirm, use `always' here.")
+
+(defvar timeclock/note-fill-column 50
+  "Timeclock report note fill column.")
+
+(defvar timeclock/report-buffer-name
+  "*timeclock report*"
+  "The name of the timeclock report buffer.")
+
+(defun timeclock/set-database (&optional file)
+  "Change the timeclock database file."
+  (interactive "FTimeclock databaes file: ")
+  (setq timeclock/db-file file
+        timeclock/db nil)
+  (message (format "Timeclock database is now %s"
+                   timeclock/db-file)))
 
 (defun timeclock/database (&optional file)
   "Create the database schema in FILE; return sqlite object."
@@ -138,9 +161,10 @@
          (span-description (car span))
          (range (cadr span))
          (tasks (timeclock//report range feature-flag))
-         (buf (when tasks (get-buffer-create "*timeclock report*"))))
+         (buf (when tasks (get-buffer-create timeclock/report-buffer-name))))
     (if buf
         (progn
+          (setq timeclock/last-report-span (car span))
           (set-buffer buf)
           (fundamental-mode)
           (erase-buffer)
@@ -151,9 +175,10 @@
           (timeclock//report-detail-section-table range feature-flag)
           (view-mode)
           (goto-char (point-min))
-          (display-buffer (current-buffer) t)
-          (message "Generated timeclock report for %s"
-                   (s-downcase span-description)))
+          (when (called-interactively-p)
+            (pop-to-buffer (current-buffer))
+            (message "Generated timeclock report for %s"
+                     (s-downcase span-description))))
       (message "No timeclock data for date range."))))
 
 
@@ -163,20 +188,27 @@
 ;; Reporting Functions
 
 (defun timeclock//feature-flag-clause-hash ()
+  "Construct a lookup hashtable of feature flag clauses."
   (let ((clauses (make-hash-table)))
     (puthash 4  "AND is_feature = 1" clauses)
     (puthash 16 "AND is_feature = 0" clauses)
     clauses))
 
 (defun timeclock//report-capture-span (&optional span-text)
+  "Prompt for which report to generate.
+
+Returns a list comprising the (string) title of the report and
+the where clause that generates it.  SPAN-TEXT may be supplied in
+which case the user is not prompted."
   (let* ((span-text (or span-text
                         (completing-read
-                         "Report Span: "
+                         "Report: "
                          timeclock/report-span-hash nil t)))
          (span-clause (gethash span-text timeclock/report-span-hash)))
     (list span-text span-clause)))
 
 (defun timeclock//report-summary-section-header (span-description)
+  "Insert the timeclock report header into the current buffer."
   (insert (concat (propertize "Timeclock Report" 'face 'timeclock-header-1-face)
                   "\n"
                   (propertize span-description 'face 'timeclock-description-face)
@@ -188,6 +220,7 @@
                               'line-spacing 0.3))))
 
 (defun timeclock//report-summary-section-table (tasks)
+  "Insert a timeclock summary section into the current buffer."
   (let (table
         (total (-reduce '+ (--map (nth 1 it) tasks))))
     (setq table
@@ -225,12 +258,14 @@
                     (timeclock//seconds-to-display-time total)))))
 
 (defun timeclock//report-detail-section-header ()
+  "Insert the report detail section header into the current buffer."
   (insert (concat "\n\n"
                   (propertize "Detail\n"
                               'face 'timeclock-header-2-face
                               'line-spacing 0.3))))
 
 (defun timeclock//report-detail-section-day-total (day-total)
+  "Insert the daiy total into the current buffer."
   (insert (format "%s%s\n"
                   (make-string 20 ?\ )
                   (timeclock//seconds-to-display-time day-total))))
@@ -246,6 +281,9 @@
   entry-id)
 
 (defun timeclock//daily-details (range feature-flag)
+  "Generate a list of a day's timeclock entries.
+
+The returned list is approprate for supplying a vtable with data."
   (let (task-list)
     (dolist (task (timeclock//detail range feature-flag))
       (-let (((title is-feature punch-in punch-out notes duration entry-id) task))
@@ -264,6 +302,7 @@
     (reverse task-list)))
 
 (defun timeclock//calculate-daily-totals (daily-details)
+  "Return the number of seconds duration for a day's tasks."
   (let (total-times)
     (dolist (day daily-details)
       (let ((today (car day))
@@ -290,11 +329,76 @@ attributes present in the daily detail section of the report."
                                      time-range
                                      duration
                                      (timeclock/task-title task)
-                                     (timeclock/task-notes task)))))))
+                                     (timeclock/task-notes task)
+                                     (timeclock/task-entry-id task)))))))
     objects))
 
+(defmacro timeclock//do-object-action (body)
+  "Attempt to restore point after an edit action.
+
+This is bound to be at best approximate as preceeding lines may
+ be inserted or removed but it's better than nothing."
+  `(let ((position (point)))
+    ,body
+    (goto-char position)))
+
+(defun timeclock//set-object-flag (obj)
+  "A vtable action to toggle the is-feature flag."
+  (timeclock//do-object-action
+   (let ((id (car (last obj))))
+     (timeclock//db-toggle-record-flag id)
+     (timeclock/report nil timeclock/last-report-span))))
+
+(defun timeclock//delete-object (obj)
+  "A vtable action to delete the current object."
+  (timeclock//do-object-action
+   (let ((id (car (last obj)))
+         (task (nth 3 obj)))
+     (if (funcall timeclock/delete-confirmation (format "Delete \"%s\"" task))
+         (progn
+           (timeclock//db-delete-record id)
+           (timeclock/report nil timeclock/last-report-span))
+       (message "Cancelled")))))
+
+(defun timeclock//set-object-task (obj)
+  "A vtable action to change the task text."
+  (timeclock//do-object-action
+   (let* ((id (car (last obj)))
+          (old-task (nth 3 obj))
+          (new-task (completing-read
+                     (format "Replace task \"%s\" with: " old-task)
+                     (timeclock//tasks))))
+     (timeclock//db-update-task id new-task)
+     (timeclock/report nil timeclock/last-report-span))))
+
+(defun timeclock//adjust-object-time (obj)
+  "A vtable action to adjust the punch in/out time."
+  (timeclock//do-object-action
+   (let* ((id (car (last obj)))
+          (task (timeclock//db-get-task id)))
+     (-let (((title is-feature punch-in punch-out notes duration entry-id) (car task)))
+       (let* ((punch-in-time (format-time-string "%R" (seconds-to-time punch-in)))
+              (punch-out-time (format-time-string "%R" (seconds-to-time punch-out)))
+              (prompt-which (format "Adjust in (%s) or out (%s) time? "
+                                    punch-in-time punch-out-time))
+              (which (completing-read prompt-which '(in out) nil t))
+              (punch-field (if (equal "in" which) 'punch-in 'punch-out))
+              (direction (completing-read "Adjust to earlier or later time? "
+                                          '(earlier later) nil t))
+              (hours (string-to-number (read-from-minibuffer (format "Hours %s: " direction))))
+              (minutes (string-to-number (read-from-minibuffer (format "Minutes %s: " direction))))
+              (adjustment-seconds (+ (* minutes 60) (* hours 60 60)))
+              (adjustment (if (equal direction "earlier")
+                              (- adjustment-seconds) adjustment-seconds)))
+         (timeclock//db-adjust-time entry-id punch-field adjustment)
+         (timeclock/report nil timeclock/last-report-span))))))
+
+(defun timeclock//edit-object-note (obj)
+  "A vtable action to edit the task note."
+   (timeclock//edit-note obj))
 
 (defun timeclock//report-detail-section-table (range feature-flag)
+  "Produce the daily vtables for the report detail."
   (let* (day-table day-tasks
                    (daily-details (timeclock//daily-details range feature-flag))
                    (totals (timeclock//calculate-daily-totals daily-details)))
@@ -308,6 +412,11 @@ attributes present in the daily detail section of the report."
              :face 'default
              :objects day-tasks
              :actions '("RET" (lambda (obj) (prin1 obj))
+                        "f" timeclock//set-object-flag
+                        "d" timeclock//delete-object
+                        "t" timeclock//set-object-task
+                        "a" timeclock//adjust-object-time
+                        "n" timeclock//edit-object-note
                         ;; "unbind" the default vtable bidings
                         "S" ignore
                         "{" ignore
@@ -327,10 +436,10 @@ attributes present in the daily detail section of the report."
                             (propertize value 'face 'timeclock-time-elapsed-face))
                            ((= index 4)
                             (if (not (equal "" value))
-                                 (propertize (concat "\n" (string-fill value 50) "\n")
-                                             'face 'timeclock-note-face
-                                             'line-prefix (make-string 6 ?\ )
-                                             'invisible 'timeclock-note)
+                                (propertize (concat "\n" (string-fill value timeclock/note-fill-column) "\n")
+                                            'face 'timeclock-note-face
+                                            'line-prefix (make-string 6 ?\ )
+                                            'invisible 'timeclock-note)
                               ""))
                            (t value)))
              :getter (lambda (object index table)
@@ -353,6 +462,7 @@ attributes present in the daily detail section of the report."
                             'line-spacing 0.3))))))
 
 (defun timeclock//toggle-notes (&rest args)
+  "Show/hide the task notes."
   (if (member 'timeclock-note buffer-invisibility-spec)
       (remove-from-invisibility-spec 'timeclock-note)
     (add-to-invisibility-spec 'timeclock-note)))
@@ -363,11 +473,14 @@ attributes present in the daily detail section of the report."
 ;; Utility Functions
 
 (defun timeclock//create-schema (db)
+  "Create the idempotent DB schema."
   (timeclock//create-table-timeclock db)
   db)
 
 (defun timeclock//tasks ()
-  (mapcar (lambda (task) (car task)) (timeclock//all-tasks)))
+  "Return a list of all existing tasks."
+  (--map (car it) (timeclock//all-tasks)))
+
 
 (defun timeclock//feature-for-task (task)
   (let ((feat (assoc task (timeclock//all-tasks))))
@@ -415,6 +528,68 @@ attributes present in the daily detail section of the report."
 
 (defun timeclock//feature-clause (flag)
   (gethash flag (timeclock//feature-flag-clause-hash) ""))
+
+(defun timeclock//db-toggle-record-flag (id)
+  (let ((db (timeclock/database)))
+    (sqlite-execute
+     db
+     "UPDATE timeclock
+      SET is_feature = iif(is_feature = 0, 1, 0)
+      WHERE entry_id = ?"
+     `(,id))))
+
+(defun timeclock//db-delete-record (id)
+  (let ((db (timeclock/database)))
+    (sqlite-execute
+     db
+     "DELETE FROM timeclock
+      WHERE entry_id = ?"
+     `(,id))))
+
+(defun timeclock//db-update-task (id new-task)
+  (let ((db (timeclock/database)))
+    (sqlite-execute
+     db
+     "UPDATE timeclock
+      SET task = ?
+      WHERE entry_id = ?"
+     `(,new-task ,id))))
+
+(defun timeclock//db-update-note (id note)
+  (let ((db (timeclock/database)))
+    (sqlite-execute
+     db
+     "UPDATE timeclock
+      SET notes = ?
+      WHERE entry_id = ?"
+     `(,note ,id))))
+
+(defun timeclock//db-get-task (id)
+  (let ((db (timeclock/database)))
+    (sqlite-execute
+     db
+     "SELECT task,
+             is_feature,
+             clock_in,
+             clock_out,
+             notes,
+             coalesce(duration,
+                      (unixepoch('now') - clock_in)),
+             entry_id
+      FROM timeclock
+      WHERE entry_id = ?"
+     `(,id))))
+
+(defun timeclock//db-adjust-time (id column adjustment)
+  (let ((db (timeclock/database))
+        (stmt (if (eq column 'punch-in)
+                  "UPDATE timeclock
+                   SET clock_in = (clock_in + ?)
+                   WHERE entry_id = ?"
+                "UPDATE timeclock
+                 SET clock_out = (clock_out + ?)
+                 WHERE entry_id = ?")))
+    (sqlite-execute db stmt `(,adjustment ,id))))
 
 (defun timeclock//report (range feature-flag)
   (let ((db (timeclock/database)))
@@ -553,5 +728,65 @@ attributes present in the daily detail section of the report."
             (cond
              ((and (= hours 0) (< minutes 1)) "<1m")
              (t (format "%2sm" minutes))))))
+
+
+;; Note editing mode detritus
+
+(defvar timeclock//edit-note-separator
+  (concat (make-string 5 ?-) " Edit Below " (make-string 5 ?-) "\n")
+  "Deliniation between header and body text in note edit.")
+
+(defun timeclock//edit-note (obj)
+  (let ((buf (get-buffer-create "*timeclock: edit note*")))
+    (set-buffer buf)
+    (timeclock//edit-note-mode 1)
+    (setq-local entry-id (car (last obj))
+                text-property-default-nonsticky '((read-only . t)))
+    (insert
+     (propertize (substitute-command-keys
+                  (concat "\\[timeclock//edit-note-finalize] Finalize; "
+                          "\\[timeclock//edit-note-cancel] Cancel\n\n"))
+                 'read-only nil))
+    (insert timeclock//edit-note-separator)
+    (insert (nth 4 obj))
+    (pop-to-buffer buf)))
+
+(defvar timeclock//edit-note-mode-map
+  (let ((map (make-sparse-keymap)))
+    (define-key map "\C-c\C-c" #'timeclock//edit-note-finalize)
+    (define-key map "\C-c\C-k" #'timeclock//edit-note-cancel)
+    map)
+  "Keymap for timeclock/edit-note-mode")
+
+(defun timeclock//edit-note-cancel ()
+  "Cancel note edit without saving."
+  (interactive nil timeclock//edit-note-mode)
+  (kill-buffer)
+  (pop-to-buffer timeclock/report-buffer-name))
+
+(defun timeclock//edit-note-clean-buffer ()
+  (let (flg)
+    (goto-char (point-min))
+    (while (null flg)
+      (when (looking-at-p timeclock//edit-note-separator)
+        (setq flg t))
+      (delete-line))))
+
+(defun timeclock//edit-note-finalize ()
+  "Save note edits."
+  (interactive nil timeclock//edit-note-mode)
+  (timeclock//edit-note-clean-buffer)
+  (timeclock//db-update-note entry-id (buffer-string))
+  (kill-buffer)
+  (timeclock/report nil timeclock/last-report-span)
+  (pop-to-buffer timeclock/report-buffer-name))
+
+(define-minor-mode timeclock//edit-note-mode
+  "Minor mode for editing task notes."
+  :init-value nil
+  :interactive nil
+  (auto-fill-mode 1)
+  (setq-local fill-column timeclock/note-fill-column))
+
 
 (provide 'timeclock)

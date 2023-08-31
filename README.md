@@ -17,6 +17,7 @@ queries.
   * `timeclock/report` generate a report
   * `timeclock/active` show the current task and elapsed time in the echo area
   * `timeclock/active-task-name` returns the active task name or nil
+  * `timeclock/set-database` change the active timeclock database
 
 No keybindings have been set.
 
@@ -35,6 +36,16 @@ schema if necessary.
 The DB may be accessed directly.  Note that the 'clock_in' and
 'clock_out' attributes are integers representing epoch seconds.
 
+Because the database handle is cached, use `timeclock/set-database` to
+change database files; simply setting `timeclock/db-file` to a new
+value will not suffice.
+
+#### Weeks
+
+The variable `timeclock/start-of-week` may be customised to an integer
+between 0 (Sunday) and 6.  It defaults to 1 (Monday) as the start of
+the week for weekly reports.
+
 #### Report Types
 
 A number of reports (e.g., "Today", "Yesterday") are
@@ -49,6 +60,26 @@ For example, to create a report on all tasks starting with "t":
     "substr(task, 1, 1) = 't'"
     timeclock/report-span-hash)
 ```
+
+#### Editing Timeclock Records
+
+Timeclock records may be edited.  In a Timeclock Report Detail section
+with point on a punch entry the following actions are supported:
+
+| key | action |
+| --- | ------ |
+| <kbd>f</kbd> | toggle feature flag |
+| <kbd>d</kbd> | delete timeclock entry |
+| <kbd>t</kbd> | edit task name |
+| <kbd>a</kbd> | adjust punch-in/out time |
+| <kbd>n</kbd> | edit note |
+
+Editing a note will pop open a dedicated buffer.  <kbd>C-c C-c</kbd>
+will save the changes; <kbd>C-c C-k</kbd> will dismiss the buffer
+without saving.  `auto-fill-mode` is turned on in the buffer with a
+`fill-column` set to `timeclock/note-fill-column`, the same value used
+to fill the note in the report.
+
 
 #### Active Tasks
 

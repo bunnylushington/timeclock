@@ -18,6 +18,7 @@ queries.
 
   * `timeclock/punch-in` start a task (potentially punching out first)
   * `timeclock/punch-out` stop a task
+  * `timeclock/add-entry` add a historical time entry
   * `timeclock/report` generate a report
   * `timeclock/active` show the current task and elapsed time in the echo area
   * `timeclock/active-task-name` returns the active task name or nil

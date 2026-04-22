@@ -11,6 +11,7 @@
 (require 'dash)
 (require 's)
 (require 'vtable)
+(require 'time-date)
 
 (defface timeclock-header-1-face
   '((t :inherit font-lock-function-name-face
@@ -125,6 +126,48 @@ To never confirm, use `always' here.")
     (run-hooks 'timeclock/pre-punch-out-hook)
     (timeclock//punch-out)
     (run-hooks 'timeclock/post-punch-out-hook)))
+
+(defun timeclock/add-entry (task is-feature start-time end-time notes)
+  "Add a historical timeclock entry.
+TASK is the name of the task.
+IS-FEATURE is a boolean flag.
+START-TIME and END-TIME are strings representing the times (YYYY-MM-DD HH:MM).
+NOTES are optional notes."
+  (interactive
+   (let* ((task (completing-read "Task: " (timeclock//tasks)))
+          (is-feature (timeclock//bool-to-int (y-or-n-p timeclock/feature-text)))
+          (today (format-time-string "%Y-%m-%d "))
+          (start-str (read-string "Start time (YYYY-MM-DD HH:MM, 24hr): " today))
+          (end-str (read-string "End time (YYYY-MM-DD HH:MM, 24hr): " 
+                                (if (string-match "^\\([0-9]\\{4\\}-[0-9]\\{2\\}-[0-9]\\{2\\} \\)" start-str)
+                                    (match-string 1 start-str)
+                                  today)))
+          (notes (read-string "Notes: ")))
+     (list task is-feature start-str end-str notes)))
+  (let* ((start-epoch (condition-case nil
+                          (floor (float-time (date-to-time start-time)))
+                        (error nil)))
+         (end-epoch (condition-case nil
+                        (floor (float-time (date-to-time end-time)))
+                      (error nil))))
+    (cond
+     ((null start-epoch) (error "Invalid start time format: %s" start-time))
+     ((null end-epoch) (error "Invalid end time format: %s" end-time))
+     ((<= end-epoch start-epoch)
+      (error "End time must be after start time (Duration: %d seconds)" (- end-epoch start-epoch)))
+     (t
+      (let ((db (timeclock/database)))
+        (sqlite-execute
+         db
+         "INSERT INTO timeclock (task, is_feature, clock_in, clock_out, notes)
+          VALUES (?, ?, ?, ?, ?)"
+         `(,task
+           ,is-feature
+           ,start-epoch
+           ,end-epoch
+           ,notes))
+        (message "Added historical entry for %s (%s)"
+                 task (timeclock//seconds-to-display-time (- end-epoch start-epoch))))))))
 
 (defun timeclock/maybe-punch-out ()
   "Propmt user to maybe punch out of active task."
@@ -337,7 +380,7 @@ attributes present in the daily detail section of the report."
   "Attempt to restore point after an edit action.
 
 XXX: This macro is not hygenic; call it a WIP."
-    `(let ((eid (car (last obj))))
+    `(let ((eid (eid (car (last obj))))
        ,body
        (goto-char (point-min))
        (if (search-forward (concat "entry-id:" (number-to-string eid)) nil t)
